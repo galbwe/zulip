@@ -2,7 +2,7 @@ import itertools
 import os
 import random
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import bmemcached
 import orjson
@@ -43,6 +43,7 @@ from zerver.models import (
     DefaultStream,
     Huddle,
     Message,
+    Reaction,
     Realm,
     RealmAuditLog,
     RealmDomain,
@@ -733,7 +734,7 @@ def generate_and_send_messages(data: Tuple[int, Sequence[Sequence[int]], Mapping
     num_messages = 0
     random_max = 1000000
     recipients: Dict[int, Tuple[int, int, Dict[str, Any]]] = {}
-    messages = []
+    messages: List[Message] = []
     while num_messages < tot_messages:
         saved_data: Dict[str, Any] = {}
         message = Message()
@@ -789,11 +790,13 @@ def generate_and_send_messages(data: Tuple[int, Sequence[Sequence[int]], Mapping
         if (num_messages % message_batch_size) == 0:
             # Send the batch and empty the list:
             send_messages(messages)
+            add_reactions_to_messages(messages)
             messages = []
 
     if len(messages) > 0:
         # If there are unsent messages after exiting the loop, send them:
         send_messages(messages)
+        add_reactions_to_messages(messages)
 
     return tot_messages
 
@@ -807,6 +810,35 @@ def send_messages(messages: List[Message]) -> None:
     settings.USING_RABBITMQ = False
     do_send_messages([{'message': message} for message in messages])
     settings.USING_RABBITMQ = True
+
+def add_reactions_to_messages(
+        messages: List[Message],
+        users: Optional[Iterable[UserProfile]] = None,
+        emojis: Optional[Iterable[Tuple[str, str]]] = None,
+        reaction_percentage: float = 0.008) -> None:
+    if emojis is None:
+        emojis = [
+            ('+1', '1f44d'),
+            ('smiley', '1f603'),
+            ('eyes', '1f440'),
+            ('crying_cat_face', '1f63f'),
+            ('arrow_up', '2b06'),
+            ('confetti_ball', '1f38a'),
+            ('hundred_points', '1f4af'),
+        ]
+    if users is None:
+        users = UserProfile.objects.filter(is_bot=False)
+    Reaction.objects.bulk_create([
+        Reaction(
+            user_profile=user,
+            message=message,
+            emoji_name=emoji[0],
+            emoji_code=emoji[1],
+            reaction_type=Reaction.UNICODE_EMOJI
+        )
+        for (message, user, emoji) in itertools.product(messages, users, emojis)
+        if random.random() < reaction_percentage
+    ])
 
 def choose_date_sent(num_messages: int, tot_messages: int, threads: int) -> datetime:
     # Spoofing time not supported with threading
