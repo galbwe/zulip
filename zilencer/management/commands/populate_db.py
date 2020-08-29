@@ -815,7 +815,7 @@ def add_reactions_to_messages(
         messages: List[Message],
         users: Optional[Iterable[UserProfile]] = None,
         emojis: Optional[Iterable[Tuple[str, str]]] = None,
-        reaction_percentage: float = 0.008) -> None:
+        reaction_percentage: float = 0.0015) -> None:
     if emojis is None:
         emojis = [
             ('+1', '1f44d'),
